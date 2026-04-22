@@ -203,6 +203,7 @@
       sending: false,
       presenceReady: false,
       messagesReady: false,
+      authSubscription: null,
     };
 
     const els = {
@@ -270,6 +271,14 @@
     function updateSendButton() {
       els.sendButton.disabled = !state.ready || state.sending;
       els.sendButton.textContent = state.sending ? '发送中...' : '发送消息';
+    }
+
+    async function applyRealtimeAuth(session) {
+      const accessToken = session?.access_token;
+      if (!accessToken) {
+        throw new Error('缺少实时连接令牌，请刷新页面重试');
+      }
+      await supabase.realtime.setAuth(accessToken);
     }
 
     function getOrCreateUsername() {
@@ -794,6 +803,9 @@
     async function reconnectRealtime() {
       try {
         setConnectionState('reconnecting', '正在重新连接消息与在线状态频道');
+        if (state.session) {
+          await applyRealtimeAuth(state.session);
+        }
         await cleanupChannels();
         await setupMessagesRealtime();
         await setupPresence();
@@ -812,11 +824,35 @@
 
       try {
         state.session = await ensureSession();
+        await applyRealtimeAuth(state.session);
         state.currentUser = {
           id: state.session.user.id,
           username: getOrCreateUsername(),
         };
         els.currentUsername.textContent = state.currentUser.username;
+
+        const { data } = supabase.auth.onAuthStateChange((event, session) => {
+          state.session = session;
+          if (!session) {
+            state.ready = false;
+            updateSendButton();
+            setConnectionState('disconnected', '登录会话已失效，请刷新页面重新进入');
+            return;
+          }
+
+          queueMicrotask(async () => {
+            try {
+              await applyRealtimeAuth(session);
+              if (event === 'TOKEN_REFRESHED') {
+                setConnectionState('connected', '登录令牌已刷新，实时连接已更新');
+              }
+            } catch (error) {
+              console.error(error);
+              setConnectionState('disconnected', '实时认证刷新失败，请点击重连');
+            }
+          });
+        });
+        state.authSubscription = data.subscription;
 
         await loadHistory();
         await setupMessagesRealtime();
