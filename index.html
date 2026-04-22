@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pulse Relay</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Noto Sans SC"', 'sans-serif'],
+            mono: ['"IBM Plex Mono"', 'monospace'],
+          },
+          colors: {
+            panel: '#161616',
+            ink: '#f5f2e9',
+            accent: '#ff6b35',
+            sky: '#9fd3ff',
+            line: '#313131',
+          },
+          boxShadow: {
+            frame: '0 24px 70px rgba(0, 0, 0, 0.32)',
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+
+    body {
+      background:
+        radial-gradient(circle at top left, rgba(255, 107, 53, 0.18), transparent 28%),
+        radial-gradient(circle at bottom right, rgba(159, 211, 255, 0.12), transparent 24%),
+        linear-gradient(135deg, #060606 0%, #111111 52%, #1b1b1b 100%);
+      font-family: "Noto Sans SC", sans-serif;
+    }
+
+    .noise::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.06;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+      background-size: 22px 22px;
+      mask-image: linear-gradient(to bottom, transparent, black 15%, black 85%, transparent);
+    }
+
+    .scrollbar-thin::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .scrollbar-thin::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .scrollbar-thin::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.14);
+      border-radius: 999px;
+    }
+  </style>
+</head>
+<body class="min-h-screen text-ink">
+  <div class="noise relative min-h-screen">
+    <div class="mx-auto flex min-h-screen max-w-7xl flex-col px-4 py-4 lg:px-6 lg:py-6">
+      <header class="rounded-[28px] border border-white/10 bg-white/5 p-5 shadow-frame backdrop-blur md:p-6">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div class="space-y-3">
+            <div class="flex items-center gap-3">
+              <span class="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-accent/15 text-lg font-semibold text-accent">PR</span>
+              <div>
+                <p class="font-mono text-xs uppercase tracking-[0.3em] text-white/45">GitHub Pages · Supabase Realtime</p>
+                <h1 class="text-2xl font-extrabold tracking-tight text-white md:text-3xl">Pulse Relay 多人互传面板</h1>
+              </div>
+            </div>
+            <p class="max-w-3xl text-sm leading-6 text-white/65 md:text-[15px]">
+              一个无需自建后端的公共聊天室。匿名进入、实时同步、图片预览发送、小文件直传下载，都在这一页里完成。
+            </p>
+          </div>
+          <div class="grid gap-3 sm:grid-cols-3 lg:min-w-[490px]">
+            <div class="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+              <p class="font-mono text-[11px] uppercase tracking-[0.28em] text-white/40">当前身份</p>
+              <p id="current-username" class="mt-2 text-sm font-semibold text-white">准备中...</p>
+            </div>
+            <div class="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+              <p class="font-mono text-[11px] uppercase tracking-[0.28em] text-white/40">连接状态</p>
+              <div class="mt-2 flex items-center gap-2">
+                <span id="connection-dot" class="h-2.5 w-2.5 rounded-full bg-amber-400"></span>
+                <p id="connection-label" class="text-sm font-semibold text-white">连接中</p>
+              </div>
+              <p id="connection-detail" class="mt-1 text-xs text-white/45">正在初始化 Supabase 会话与实时频道</p>
+            </div>
+            <div class="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+              <p class="font-mono text-[11px] uppercase tracking-[0.28em] text-white/40">在线人数</p>
+              <div class="mt-2 flex items-center justify-between gap-3">
+                <p id="online-count" class="text-sm font-semibold text-white">0 人在线</p>
+                <button id="reconnect-button" type="button" class="rounded-full border border-white/10 px-3 py-1 text-xs font-medium text-white/70 transition hover:border-white/30 hover:text-white">
+                  重连
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="mt-4 grid flex-1 gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
+        <aside class="order-2 flex min-h-[260px] flex-col rounded-[28px] border border-white/10 bg-white/5 shadow-frame backdrop-blur lg:order-1">
+          <div class="border-b border-white/10 px-5 py-4">
+            <p class="font-mono text-[11px] uppercase tracking-[0.28em] text-white/40">Presence</p>
+            <div class="mt-2 flex items-center justify-between gap-3">
+              <h2 class="text-lg font-bold text-white">在线用户</h2>
+              <span class="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/60">公共房间</span>
+            </div>
+          </div>
+          <div id="online-users" class="scrollbar-thin flex-1 space-y-3 overflow-y-auto px-4 py-4">
+            <div class="rounded-2xl border border-dashed border-white/10 px-4 py-5 text-sm text-white/45">等待用户上线…</div>
+          </div>
+        </aside>
+
+        <section class="order-1 flex min-h-[70vh] flex-col rounded-[30px] border border-white/10 bg-panel/80 shadow-frame lg:order-2">
+          <div class="border-b border-white/10 px-5 py-4">
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p class="font-mono text-[11px] uppercase tracking-[0.28em] text-white/35">Live Feed</p>
+                <h2 class="mt-1 text-lg font-bold text-white">实时消息流</h2>
+              </div>
+              <p class="text-sm text-white/45">支持文字、图片、文件，图片点击可放大查看</p>
+            </div>
+          </div>
+
+          <div id="messages" class="scrollbar-thin flex-1 space-y-4 overflow-y-auto px-4 py-5 md:px-5">
+            <div class="rounded-2xl border border-dashed border-white/10 px-4 py-6 text-center text-sm text-white/40">
+              连接成功后会自动加载最近消息
+            </div>
+          </div>
+
+          <div class="border-t border-white/10 bg-black/10 px-4 py-4 md:px-5">
+            <div id="pending-attachment" class="mb-3 hidden"></div>
+            <form id="composer-form" class="space-y-3">
+              <label for="message-input" class="sr-only">输入消息</label>
+              <textarea id="message-input" rows="3" placeholder="输入文字，或附带一张图 / 一个文件一起发送…" class="w-full resize-none rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm leading-6 text-white outline-none transition placeholder:text-white/25 focus:border-accent/60 focus:bg-white/[0.07]"></textarea>
+              <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div class="flex flex-wrap items-center gap-2">
+                  <input id="image-input" type="file" accept="image/jpeg,image/png,image/gif" class="hidden">
+                  <input id="file-input" type="file" class="hidden">
+                  <button id="pick-image-button" type="button" class="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white/70 transition hover:border-sky/40 hover:text-white">
+                    选择图片
+                  </button>
+                  <button id="pick-file-button" type="button" class="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white/70 transition hover:border-sky/40 hover:text-white">
+                    选择文件
+                  </button>
+                  <span class="text-xs text-white/35">图片支持 jpg/png/gif，所有文件上限 10MB</span>
+                </div>
+                <button id="send-button" type="submit" class="inline-flex items-center justify-center rounded-full bg-accent px-5 py-2.5 text-sm font-semibold text-black transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50">
+                  发送消息
+                </button>
+              </div>
+            </form>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <div id="toast" class="pointer-events-none fixed bottom-5 left-1/2 z-50 hidden -translate-x-1/2 rounded-full border border-white/10 bg-black/75 px-4 py-2 text-sm text-white shadow-lg backdrop-blur"></div>
+
+  <div id="image-modal" class="fixed inset-0 z-40 hidden items-center justify-center bg-black/85 px-4 py-4">
+    <button id="close-modal-button" type="button" class="absolute right-5 top-5 rounded-full border border-white/20 px-3 py-1 text-sm text-white/80 transition hover:border-white/40 hover:text-white">
+      关闭
+    </button>
+    <img id="image-modal-src" alt="放大预览" class="max-h-[90vh] max-w-[92vw] rounded-3xl border border-white/10 object-contain shadow-frame">
+  </div>
+
+  <script type="module">
+    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+
+    const SUPABASE_URL = 'https://lljblinqccydassokspa.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_yanZsKJCotPg7Bp4kdPJXQ_Qqe91gSw';
+    const MESSAGE_LIMIT = 50;
+    const MAX_FILE_SIZE = 10 * 1024 * 1024;
+    const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif']);
+
+    const state = {
+      supabase: null,
+      session: null,
+      currentUser: null,
+      pendingAttachment: null,
+      presenceChannel: null,
+      messagesChannel: null,
+      messageIds: new Set(),
+      historyLoaded: false,
+      ready: false,
+      sending: false,
+      presenceReady: false,
+      messagesReady: false,
+    };
+
+    const els = {
+      currentUsername: document.getElementById('current-username'),
+      connectionDot: document.getElementById('connection-dot'),
+      connectionLabel: document.getElementById('connection-label'),
+      connectionDetail: document.getElementById('connection-detail'),
+      onlineCount: document.getElementById('online-count'),
+      onlineUsers: document.getElementById('online-users'),
+      reconnectButton: document.getElementById('reconnect-button'),
+      messages: document.getElementById('messages'),
+      composerForm: document.getElementById('composer-form'),
+      messageInput: document.getElementById('message-input'),
+      pendingAttachment: document.getElementById('pending-attachment'),
+      imageInput: document.getElementById('image-input'),
+      fileInput: document.getElementById('file-input'),
+      pickImageButton: document.getElementById('pick-image-button'),
+      pickFileButton: document.getElementById('pick-file-button'),
+      sendButton: document.getElementById('send-button'),
+      toast: document.getElementById('toast'),
+      imageModal: document.getElementById('image-modal'),
+      imageModalSrc: document.getElementById('image-modal-src'),
+      closeModalButton: document.getElementById('close-modal-button'),
+    };
+
+    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+      },
+    });
+    state.supabase = supabase;
+
+    let toastTimer = null;
+
+    function showToast(message, tone = 'neutral') {
+      const toneClass = tone === 'error'
+        ? 'border-red-400/30 text-red-100'
+        : tone === 'success'
+          ? 'border-emerald-400/30 text-emerald-100'
+          : 'border-white/10 text-white';
+
+      els.toast.className = `pointer-events-none fixed bottom-5 left-1/2 z-50 -translate-x-1/2 rounded-full bg-black/75 px-4 py-2 text-sm shadow-lg backdrop-blur ${toneClass}`;
+      els.toast.textContent = message;
+      els.toast.classList.remove('hidden');
+      window.clearTimeout(toastTimer);
+      toastTimer = window.setTimeout(() => {
+        els.toast.classList.add('hidden');
+      }, 2800);
+    }
+
+    function setConnectionState(stateName, detail = '') {
+      const palette = {
+        connecting: ['bg-amber-400', '连接中'],
+        connected: ['bg-emerald-400', '已连接'],
+        disconnected: ['bg-red-400', '已断开'],
+        reconnecting: ['bg-sky-400', '重连中'],
+      };
+      const [dotClass, label] = palette[stateName] || palette.connecting;
+      els.connectionDot.className = `h-2.5 w-2.5 rounded-full ${dotClass}`;
+      els.connectionLabel.textContent = label;
+      els.connectionDetail.textContent = detail;
+    }
+
+    function updateSendButton() {
+      els.sendButton.disabled = !state.ready || state.sending;
+      els.sendButton.textContent = state.sending ? '发送中...' : '发送消息';
+    }
+
+    function getOrCreateUsername() {
+      const storageKey = 'pulse-relay-username';
+      const existing = localStorage.getItem(storageKey);
+      if (existing) return existing;
+      const generated = `用户-${Math.random().toString(16).slice(2, 6).toUpperCase()}`;
+      localStorage.setItem(storageKey, generated);
+      return generated;
+    }
+
+    async function ensureSession() {
+      const { data, error } = await supabase.auth.getSession();
+      if (error) throw error;
+      if (data.session) return data.session;
+
+      const { data: signInData, error: signInError } = await supabase.auth.signInAnonymously();
+      if (signInError) throw signInError;
+      return signInData.session;
+    }
+
+    function formatTimestamp(input) {
+      if (!input) return '';
+      const date = new Date(input);
+      return new Intl.DateTimeFormat('zh-CN', {
+        month: 'numeric',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(date);
+    }
+
+    function formatFileSize(size) {
+      if (!Number.isFinite(size) || size <= 0) return '未知大小';
+      if (size < 1024) return `${size} B`;
+      if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+      return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+    }
+
+    function escapeFileName(name) {
+      return name.replace(/[^\w.\-()\u4e00-\u9fa5]/g, '_');
+    }
+
+    function clearMessagesPlaceholder() {
+      if (!state.historyLoaded) return;
+      if (els.messages.children.length === 1 && els.messages.firstElementChild?.dataset?.placeholder === 'true') {
+        els.messages.innerHTML = '';
+      }
+    }
+
+    function renderEmptyMessagesPlaceholder(message) {
+      els.messages.innerHTML = '';
+      const card = document.createElement('div');
+      card.dataset.placeholder = 'true';
+      card.className = 'rounded-2xl border border-dashed border-white/10 px-4 py-6 text-center text-sm text-white/40';
+      card.textContent = message;
+      els.messages.appendChild(card);
+    }
+
+    function buildMessageBubble(record) {
+      const isSelf = record.user_id === state.currentUser?.id;
+      const wrapper = document.createElement('article');
+      wrapper.className = `flex ${isSelf ? 'justify-end' : 'justify-start'}`;
+
+      const bubble = document.createElement('div');
+      bubble.className = [
+        'max-w-[86%] rounded-[24px] border px-4 py-3 shadow-lg md:max-w-[72%]',
+        isSelf
+          ? 'border-accent/30 bg-accent/12 text-white'
+          : 'border-white/10 bg-white/5 text-white',
+      ].join(' ');
+
+      const meta = document.createElement('div');
+      meta.className = `mb-2 flex items-center gap-2 text-[11px] ${isSelf ? 'justify-end text-white/45' : 'justify-start text-white/45'}`;
+      const name = document.createElement('span');
+      name.className = 'font-semibold text-white/70';
+      name.textContent = isSelf ? `${record.username} · 我` : record.username || '匿名用户';
+      const time = document.createElement('span');
+      time.className = 'font-mono';
+      time.textContent = formatTimestamp(record.created_at);
+      meta.append(name, time);
+      bubble.appendChild(meta);
+
+      if (record.type === 'text') {
+        const content = document.createElement('p');
+        content.className = 'whitespace-pre-wrap break-words text-sm leading-6';
+        content.textContent = record.content || '';
+        bubble.appendChild(content);
+      }
+
+      if (record.type === 'image') {
+        const imageButton = document.createElement('button');
+        imageButton.type = 'button';
+        imageButton.className = 'group block overflow-hidden rounded-[20px] border border-white/10 bg-black/20';
+        imageButton.dataset.imageUrl = record.file_url || '';
+
+        const image = document.createElement('img');
+        image.src = record.file_url || '';
+        image.alt = record.file_name || '图片';
+        image.className = 'max-h-80 w-full object-cover transition duration-300 group-hover:scale-[1.02]';
+        image.loading = 'lazy';
+        imageButton.appendChild(image);
+        bubble.appendChild(imageButton);
+
+        const captionWrap = document.createElement('div');
+        captionWrap.className = 'mt-3 space-y-2';
+
+        const fileMeta = document.createElement('p');
+        fileMeta.className = 'text-xs text-white/45';
+        fileMeta.textContent = `${record.file_name || '图片'} · ${formatFileSize(record.file_size)}`;
+        captionWrap.appendChild(fileMeta);
+
+        if (record.content) {
+          const caption = document.createElement('p');
+          caption.className = 'whitespace-pre-wrap break-words text-sm leading-6';
+          caption.textContent = record.content;
+          captionWrap.appendChild(caption);
+        }
+
+        bubble.appendChild(captionWrap);
+      }
+
+      if (record.type === 'file') {
+        const fileCard = document.createElement('div');
+        fileCard.className = 'rounded-[20px] border border-white/10 bg-black/20 p-3';
+
+        const row = document.createElement('div');
+        row.className = 'flex items-start justify-between gap-3';
+
+        const info = document.createElement('div');
+        info.className = 'min-w-0';
+        const fileName = document.createElement('p');
+        fileName.className = 'truncate text-sm font-semibold text-white';
+        fileName.textContent = record.file_name || '未命名文件';
+        const fileMeta = document.createElement('p');
+        fileMeta.className = 'mt-1 text-xs text-white/45';
+        fileMeta.textContent = `${record.mime_type || '文件'} · ${formatFileSize(record.file_size)}`;
+        info.append(fileName, fileMeta);
+
+        const link = document.createElement('a');
+        link.href = record.file_url || '#';
+        link.target = '_blank';
+        link.rel = 'noreferrer';
+        link.download = record.file_name || 'download';
+        link.className = 'shrink-0 rounded-full border border-white/15 px-3 py-1.5 text-xs font-medium text-white/80 transition hover:border-sky/40 hover:text-white';
+        link.textContent = '下载';
+
+        row.append(info, link);
+        fileCard.appendChild(row);
+        bubble.appendChild(fileCard);
+
+        if (record.content) {
+          const caption = document.createElement('p');
+          caption.className = 'mt-3 whitespace-pre-wrap break-words text-sm leading-6';
+          caption.textContent = record.content;
+          bubble.appendChild(caption);
+        }
+      }
+
+      wrapper.appendChild(bubble);
+      return wrapper;
+    }
+
+    function appendMessage(record, { scroll = true } = {}) {
+      if (!record?.id || state.messageIds.has(record.id)) return;
+      state.messageIds.add(record.id);
+      clearMessagesPlaceholder();
+      els.messages.appendChild(buildMessageBubble(record));
+      if (scroll) {
+        els.messages.scrollTop = els.messages.scrollHeight;
+      }
+    }
+
+    function renderOnlineUsers(users) {
+      els.onlineUsers.innerHTML = '';
+      els.onlineCount.textContent = `${users.length} 人在线`;
+
+      if (!users.length) {
+        const empty = document.createElement('div');
+        empty.className = 'rounded-2xl border border-dashed border-white/10 px-4 py-5 text-sm text-white/45';
+        empty.textContent = '暂时没有在线用户';
+        els.onlineUsers.appendChild(empty);
+        return;
+      }
+
+      users.forEach((user) => {
+        const card = document.createElement('div');
+        card.className = 'rounded-2xl border border-white/10 bg-black/15 px-4 py-3';
+
+        const top = document.createElement('div');
+        top.className = 'flex items-center justify-between gap-3';
+
+        const name = document.createElement('p');
+        name.className = 'text-sm font-semibold text-white';
+        name.textContent = user.userId === state.currentUser?.id ? `${user.username} · 我` : user.username;
+
+        const badge = document.createElement('span');
+        badge.className = 'rounded-full bg-emerald-400/15 px-2 py-1 text-[11px] font-medium text-emerald-200';
+        badge.textContent = '在线';
+        top.append(name, badge);
+
+        const meta = document.createElement('p');
+        meta.className = 'mt-2 font-mono text-[11px] text-white/40';
+        meta.textContent = `加入于 ${formatTimestamp(user.joinedAt)}`;
+
+        card.append(top, meta);
+        els.onlineUsers.appendChild(card);
+      });
+    }
+
+    function syncOnlineUsers() {
+      if (!state.presenceChannel) return;
+      const raw = state.presenceChannel.presenceState();
+      const flattened = Object.values(raw)
+        .flat()
+        .map((entry) => ({
+          userId: entry.userId,
+          username: entry.username || '匿名用户',
+          joinedAt: entry.joinedAt,
+        }))
+        .sort((a, b) => {
+          if (a.userId === state.currentUser?.id) return -1;
+          if (b.userId === state.currentUser?.id) return 1;
+          return a.username.localeCompare(b.username, 'zh-CN');
+        });
+
+      renderOnlineUsers(flattened);
+    }
+
+    function setPendingAttachment(payload) {
+      state.pendingAttachment = payload;
+      if (!payload) {
+        els.pendingAttachment.classList.add('hidden');
+        els.pendingAttachment.innerHTML = '';
+        return;
+      }
+
+      els.pendingAttachment.classList.remove('hidden');
+      els.pendingAttachment.innerHTML = '';
+
+      const card = document.createElement('div');
+      card.className = 'rounded-[22px] border border-white/10 bg-white/5 p-3';
+
+      const row = document.createElement('div');
+      row.className = 'flex items-start justify-between gap-3';
+
+      const info = document.createElement('div');
+      info.className = 'min-w-0 flex-1';
+
+      const title = document.createElement('p');
+      title.className = 'text-sm font-semibold text-white';
+      title.textContent = payload.kind === 'image' ? '待发送图片' : '待发送文件';
+      const meta = document.createElement('p');
+      meta.className = 'mt-1 truncate text-xs text-white/45';
+      meta.textContent = `${payload.file.name} · ${formatFileSize(payload.file.size)}`;
+      info.append(title, meta);
+
+      const clearButton = document.createElement('button');
+      clearButton.type = 'button';
+      clearButton.className = 'rounded-full border border-white/10 px-3 py-1 text-xs text-white/70 transition hover:border-white/30 hover:text-white';
+      clearButton.textContent = '移除';
+      clearButton.addEventListener('click', () => {
+        setPendingAttachment(null);
+        els.imageInput.value = '';
+        els.fileInput.value = '';
+      });
+
+      row.append(info, clearButton);
+      card.appendChild(row);
+
+      if (payload.kind === 'image' && payload.previewUrl) {
+        const preview = document.createElement('img');
+        preview.src = payload.previewUrl;
+        preview.alt = payload.file.name;
+        preview.className = 'mt-3 max-h-40 rounded-[18px] border border-white/10 object-cover';
+        card.appendChild(preview);
+      }
+
+      els.pendingAttachment.appendChild(card);
+    }
+
+    async function loadHistory() {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(MESSAGE_LIMIT);
+
+      if (error) throw error;
+
+      els.messages.innerHTML = '';
+      state.historyLoaded = true;
+
+      const rows = [...(data || [])].reverse();
+      if (!rows.length) {
+        renderEmptyMessagesPlaceholder('还没有历史消息，发第一条试试看。');
+        return;
+      }
+
+      rows.forEach((record) => appendMessage(record, { scroll: false }));
+      els.messages.scrollTop = els.messages.scrollHeight;
+    }
+
+    async function setupPresence() {
+      state.presenceReady = false;
+      state.presenceChannel = supabase.channel('room:public', {
+        config: { presence: { key: state.currentUser.id } },
+      });
+
+      state.presenceChannel
+        .on('presence', { event: 'sync' }, syncOnlineUsers)
+        .on('presence', { event: 'join' }, syncOnlineUsers)
+        .on('presence', { event: 'leave' }, syncOnlineUsers)
+        .subscribe(async (status) => {
+          if (status === 'SUBSCRIBED') {
+            state.presenceReady = true;
+            refreshReadyState();
+            await state.presenceChannel.track({
+              userId: state.currentUser.id,
+              username: state.currentUser.username,
+              joinedAt: new Date().toISOString(),
+            });
+            syncOnlineUsers();
+          }
+
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+            state.presenceReady = false;
+            refreshReadyState();
+            setConnectionState('disconnected', '在线状态频道已断开，请重连');
+          }
+        });
+    }
+
+    async function setupMessagesRealtime() {
+      state.messagesReady = false;
+      state.messagesChannel = supabase
+        .channel('messages-feed')
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'messages' },
+          ({ new: record }) => appendMessage(record)
+        )
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            state.messagesReady = true;
+            refreshReadyState();
+          }
+
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+            state.messagesReady = false;
+            refreshReadyState();
+            setConnectionState('disconnected', '消息频道已断开，请重连');
+          }
+        });
+    }
+
+    function refreshReadyState() {
+      state.ready = state.presenceReady && state.messagesReady;
+      updateSendButton();
+      if (state.ready) {
+        setConnectionState('connected', '会话已建立，消息与在线列表正在实时同步');
+      }
+    }
+
+    async function uploadPendingAttachment() {
+      const pending = state.pendingAttachment;
+      if (!pending) return null;
+
+      const safeName = escapeFileName(pending.file.name);
+      const path = `${state.currentUser.id}/${Date.now()}-${safeName}`;
+      const { error } = await supabase.storage.from('chat-files').upload(path, pending.file, {
+        cacheControl: '3600',
+        upsert: false,
+      });
+
+      if (error) throw error;
+
+      const { data } = supabase.storage.from('chat-files').getPublicUrl(path);
+      return {
+        type: pending.kind,
+        file_name: pending.file.name,
+        file_url: data.publicUrl,
+        file_size: pending.file.size,
+        mime_type: pending.file.type || 'application/octet-stream',
+      };
+    }
+
+    async function sendMessage(event) {
+      event.preventDefault();
+      if (!state.ready || state.sending) return;
+
+      const text = els.messageInput.value.trim();
+      if (!text && !state.pendingAttachment) {
+        showToast('请输入消息或选择文件', 'error');
+        return;
+      }
+
+      state.sending = true;
+      updateSendButton();
+
+      try {
+        const attachment = await uploadPendingAttachment();
+        const payload = {
+          user_id: state.currentUser.id,
+          username: state.currentUser.username,
+          type: attachment?.type || 'text',
+          content: text,
+          file_name: attachment?.file_name || null,
+          file_url: attachment?.file_url || null,
+          file_size: attachment?.file_size || null,
+          mime_type: attachment?.mime_type || null,
+        };
+
+        const { error } = await supabase.from('messages').insert(payload);
+        if (error) throw error;
+
+        els.messageInput.value = '';
+        els.imageInput.value = '';
+        els.fileInput.value = '';
+        setPendingAttachment(null);
+      } catch (error) {
+        console.error(error);
+        showToast(error.message || '发送失败，请稍后重试', 'error');
+      } finally {
+        state.sending = false;
+        updateSendButton();
+      }
+    }
+
+    function openImageModal(url) {
+      if (!url) return;
+      els.imageModalSrc.src = url;
+      els.imageModal.classList.remove('hidden');
+      els.imageModal.classList.add('flex');
+    }
+
+    function closeImageModal() {
+      els.imageModal.classList.add('hidden');
+      els.imageModal.classList.remove('flex');
+      els.imageModalSrc.src = '';
+    }
+
+    function bindEvents() {
+      els.pickImageButton.addEventListener('click', () => els.imageInput.click());
+      els.pickFileButton.addEventListener('click', () => els.fileInput.click());
+      els.composerForm.addEventListener('submit', sendMessage);
+      els.reconnectButton.addEventListener('click', () => reconnectRealtime());
+      els.closeModalButton.addEventListener('click', closeImageModal);
+      els.imageModal.addEventListener('click', (event) => {
+        if (event.target === els.imageModal) closeImageModal();
+      });
+      els.messages.addEventListener('click', (event) => {
+        const target = event.target.closest('[data-image-url]');
+        if (target) openImageModal(target.dataset.imageUrl);
+      });
+      els.messageInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && !event.shiftKey) {
+          event.preventDefault();
+          els.composerForm.requestSubmit();
+        }
+      });
+
+      els.imageInput.addEventListener('change', (event) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        if (!IMAGE_TYPES.has(file.type)) {
+          showToast('图片仅支持 jpg、png、gif', 'error');
+          event.target.value = '';
+          return;
+        }
+        if (file.size > MAX_FILE_SIZE) {
+          showToast('图片不能超过 10MB', 'error');
+          event.target.value = '';
+          return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = () => {
+          setPendingAttachment({
+            kind: 'image',
+            file,
+            previewUrl: reader.result,
+          });
+          els.fileInput.value = '';
+        };
+        reader.onerror = () => showToast('图片预览失败，请重试', 'error');
+        reader.readAsDataURL(file);
+      });
+
+      els.fileInput.addEventListener('change', (event) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        if (file.size > MAX_FILE_SIZE) {
+          showToast('文件不能超过 10MB', 'error');
+          event.target.value = '';
+          return;
+        }
+
+        setPendingAttachment({
+          kind: 'file',
+          file,
+          previewUrl: null,
+        });
+        els.imageInput.value = '';
+      });
+    }
+
+    async function cleanupChannels() {
+      if (state.presenceChannel) {
+        await supabase.removeChannel(state.presenceChannel);
+        state.presenceChannel = null;
+      }
+      if (state.messagesChannel) {
+        await supabase.removeChannel(state.messagesChannel);
+        state.messagesChannel = null;
+      }
+      state.presenceReady = false;
+      state.messagesReady = false;
+      refreshReadyState();
+    }
+
+    async function reconnectRealtime() {
+      try {
+        setConnectionState('reconnecting', '正在重新连接消息与在线状态频道');
+        await cleanupChannels();
+        await setupMessagesRealtime();
+        await setupPresence();
+        showToast('正在重新连接…');
+      } catch (error) {
+        console.error(error);
+        setConnectionState('disconnected', '重连失败，请稍后重试');
+        showToast(error.message || '重连失败', 'error');
+      }
+    }
+
+    async function init() {
+      bindEvents();
+      updateSendButton();
+      setConnectionState('connecting', '正在初始化 Supabase 会话与实时频道');
+
+      try {
+        state.session = await ensureSession();
+        state.currentUser = {
+          id: state.session.user.id,
+          username: getOrCreateUsername(),
+        };
+        els.currentUsername.textContent = state.currentUser.username;
+
+        await loadHistory();
+        await setupMessagesRealtime();
+        await setupPresence();
+        showToast('已进入公共聊天室', 'success');
+      } catch (error) {
+        console.error(error);
+        setConnectionState('disconnected', '初始化失败，请检查 Supabase 配置与网络');
+        showToast(error.message || '初始化失败', 'error');
+        renderEmptyMessagesPlaceholder('初始化失败，请点击右上角“重连”再试。');
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
