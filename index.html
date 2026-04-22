@@ -192,7 +192,6 @@
 
     const state = {
       supabase: null,
-      session: null,
       currentUser: null,
       pendingAttachment: null,
       presenceChannel: null,
@@ -203,7 +202,6 @@
       sending: false,
       presenceReady: false,
       messagesReady: false,
-      authSubscription: null,
     };
 
     const els = {
@@ -231,13 +229,32 @@
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
       auth: {
-        persistSession: true,
-        autoRefreshToken: true,
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
       },
     });
     state.supabase = supabase;
 
     let toastTimer = null;
+
+    function getFriendlyErrorMessage(error, fallback = '操作失败，请稍后重试') {
+      const message = error?.message || '';
+
+      if (message.includes('row-level security policy')) {
+        return 'Supabase 还没放开公共写入策略，消息暂时不能发送。';
+      }
+
+      if (message.includes('new row violates row-level security policy')) {
+        return 'Supabase 还没放开公共写入策略，消息暂时不能发送。';
+      }
+
+      if (message.includes('duplicate key')) {
+        return '文件名重复了，请重新选择后再试。';
+      }
+
+      return message || fallback;
+    }
 
     function showToast(message, tone = 'neutral') {
       const toneClass = tone === 'error'
@@ -273,14 +290,6 @@
       els.sendButton.textContent = state.sending ? '发送中...' : '发送消息';
     }
 
-    async function applyRealtimeAuth(session) {
-      const accessToken = session?.access_token;
-      if (!accessToken) {
-        throw new Error('缺少实时连接令牌，请刷新页面重试');
-      }
-      await supabase.realtime.setAuth(accessToken);
-    }
-
     function getOrCreateUsername() {
       const storageKey = 'pulse-relay-username';
       const existing = localStorage.getItem(storageKey);
@@ -290,14 +299,19 @@
       return generated;
     }
 
-    async function ensureSession() {
-      const { data, error } = await supabase.auth.getSession();
-      if (error) throw error;
-      if (data.session) return data.session;
-
-      const { data: signInData, error: signInError } = await supabase.auth.signInAnonymously();
-      if (signInError) throw signInError;
-      return signInData.session;
+    function getOrCreateVisitorId() {
+      const storageKey = 'pulse-relay-visitor-id';
+      const existing = localStorage.getItem(storageKey);
+      if (existing) return existing;
+      const generated = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
+            const random = Math.random() * 16 | 0;
+            const value = char === 'x' ? random : (random & 0x3 | 0x8);
+            return value.toString(16);
+          });
+      localStorage.setItem(storageKey, generated);
+      return generated;
     }
 
     function formatTimestamp(input) {
@@ -322,6 +336,23 @@
       return name.replace(/[^\w.\-()\u4e00-\u9fa5]/g, '_');
     }
 
+    function inferMessageKind(record) {
+      if (!record?.file_url) {
+        return 'text';
+      }
+
+      if ((record.mime_type || '').startsWith('image/')) {
+        return 'image';
+      }
+
+      const fileName = (record.file_name || '').toLowerCase();
+      if (/\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(fileName)) {
+        return 'image';
+      }
+
+      return 'file';
+    }
+
     function clearMessagesPlaceholder() {
       if (!state.historyLoaded) return;
       if (els.messages.children.length === 1 && els.messages.firstElementChild?.dataset?.placeholder === 'true') {
@@ -340,6 +371,7 @@
 
     function buildMessageBubble(record) {
       const isSelf = record.user_id === state.currentUser?.id;
+      const messageKind = inferMessageKind(record);
       const wrapper = document.createElement('article');
       wrapper.className = `flex ${isSelf ? 'justify-end' : 'justify-start'}`;
 
@@ -362,14 +394,14 @@
       meta.append(name, time);
       bubble.appendChild(meta);
 
-      if (record.type === 'text') {
+      if (messageKind === 'text') {
         const content = document.createElement('p');
         content.className = 'whitespace-pre-wrap break-words text-sm leading-6';
         content.textContent = record.content || '';
         bubble.appendChild(content);
       }
 
-      if (record.type === 'image') {
+      if (messageKind === 'image') {
         const imageButton = document.createElement('button');
         imageButton.type = 'button';
         imageButton.className = 'group block overflow-hidden rounded-[20px] border border-white/10 bg-black/20';
@@ -401,7 +433,7 @@
         bubble.appendChild(captionWrap);
       }
 
-      if (record.type === 'file') {
+      if (messageKind === 'file') {
         const fileCard = document.createElement('div');
         fileCard.className = 'rounded-[20px] border border-white/10 bg-black/20 p-3';
 
@@ -658,7 +690,6 @@
 
       const { data } = supabase.storage.from('chat-files').getPublicUrl(path);
       return {
-        type: pending.kind,
         file_name: pending.file.name,
         file_url: data.publicUrl,
         file_size: pending.file.size,
@@ -684,7 +715,6 @@
         const payload = {
           user_id: state.currentUser.id,
           username: state.currentUser.username,
-          type: attachment?.type || 'text',
           content: text,
           file_name: attachment?.file_name || null,
           file_url: attachment?.file_url || null,
@@ -701,7 +731,7 @@
         setPendingAttachment(null);
       } catch (error) {
         console.error(error);
-        showToast(error.message || '发送失败，请稍后重试', 'error');
+        showToast(getFriendlyErrorMessage(error, '发送失败，请稍后重试'), 'error');
       } finally {
         state.sending = false;
         updateSendButton();
@@ -803,9 +833,6 @@
     async function reconnectRealtime() {
       try {
         setConnectionState('reconnecting', '正在重新连接消息与在线状态频道');
-        if (state.session) {
-          await applyRealtimeAuth(state.session);
-        }
         await cleanupChannels();
         await setupMessagesRealtime();
         await setupPresence();
@@ -823,36 +850,11 @@
       setConnectionState('connecting', '正在初始化 Supabase 会话与实时频道');
 
       try {
-        state.session = await ensureSession();
-        await applyRealtimeAuth(state.session);
         state.currentUser = {
-          id: state.session.user.id,
+          id: getOrCreateVisitorId(),
           username: getOrCreateUsername(),
         };
         els.currentUsername.textContent = state.currentUser.username;
-
-        const { data } = supabase.auth.onAuthStateChange((event, session) => {
-          state.session = session;
-          if (!session) {
-            state.ready = false;
-            updateSendButton();
-            setConnectionState('disconnected', '登录会话已失效，请刷新页面重新进入');
-            return;
-          }
-
-          queueMicrotask(async () => {
-            try {
-              await applyRealtimeAuth(session);
-              if (event === 'TOKEN_REFRESHED') {
-                setConnectionState('connected', '登录令牌已刷新，实时连接已更新');
-              }
-            } catch (error) {
-              console.error(error);
-              setConnectionState('disconnected', '实时认证刷新失败，请点击重连');
-            }
-          });
-        });
-        state.authSubscription = data.subscription;
 
         await loadHistory();
         await setupMessagesRealtime();
@@ -860,8 +862,8 @@
         showToast('已进入公共聊天室', 'success');
       } catch (error) {
         console.error(error);
-        setConnectionState('disconnected', '初始化失败，请检查 Supabase 配置与网络');
-        showToast(error.message || '初始化失败', 'error');
+        setConnectionState('disconnected', '初始化失败，请检查 messages 表和 Realtime 配置');
+        showToast(getFriendlyErrorMessage(error, '初始化失败'), 'error');
         renderEmptyMessagesPlaceholder('初始化失败，请点击右上角“重连”再试。');
       }
     }
