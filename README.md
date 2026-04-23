@@ -24,8 +24,18 @@
 - 页面已经内置 Supabase 项目的 `URL` 和 `publishable key`
 - 首次进入会自动匿名登录
 - 用户名会写入浏览器 `localStorage`
+- 页面为无历史模式，只显示进入页面后的实时消息
 - 图片支持 `jpg/png/gif`
 - 所有上传文件限制为 `10MB`
+
+## 清理策略
+
+- 建议在 Supabase SQL Editor 执行：
+  - `supabase/no-history-cleanup-1h.sql`
+- 作用：
+  - 每 10 分钟清理一次
+  - 删除 1 小时前的消息
+  - 删除 1 小时前的上传文件
 
 ## 注意
 

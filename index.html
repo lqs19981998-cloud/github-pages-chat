@@ -186,7 +186,7 @@
 
     const SUPABASE_URL = 'https://lljblinqccydassokspa.supabase.co';
     const SUPABASE_KEY = 'sb_publishable_yanZsKJCotPg7Bp4kdPJXQ_Qqe91gSw';
-    const MESSAGE_LIMIT = 50;
+    const LIVE_MESSAGE_LIMIT = 50;
     const MAX_FILE_SIZE = 10 * 1024 * 1024;
     const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif']);
 
@@ -369,6 +369,12 @@
       els.messages.appendChild(card);
     }
 
+    function initializeRealtimeOnlyFeed() {
+      state.messageIds.clear();
+      state.historyLoaded = true;
+      renderEmptyMessagesPlaceholder('无历史模式已开启，页面只显示你进入之后的新消息。');
+    }
+
     function buildMessageBubble(record) {
       const isSelf = record.user_id === state.currentUser?.id;
       const messageKind = inferMessageKind(record);
@@ -479,6 +485,11 @@
       state.messageIds.add(record.id);
       clearMessagesPlaceholder();
       els.messages.appendChild(buildMessageBubble(record));
+      while (els.messages.children.length > LIVE_MESSAGE_LIMIT) {
+        const first = els.messages.firstElementChild;
+        if (!first) break;
+        els.messages.removeChild(first);
+      }
       if (scroll) {
         els.messages.scrollTop = els.messages.scrollHeight;
       }
@@ -590,28 +601,6 @@
       }
 
       els.pendingAttachment.appendChild(card);
-    }
-
-    async function loadHistory() {
-      const { data, error } = await supabase
-        .from('messages')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(MESSAGE_LIMIT);
-
-      if (error) throw error;
-
-      els.messages.innerHTML = '';
-      state.historyLoaded = true;
-
-      const rows = [...(data || [])].reverse();
-      if (!rows.length) {
-        renderEmptyMessagesPlaceholder('还没有历史消息，发第一条试试看。');
-        return;
-      }
-
-      rows.forEach((record) => appendMessage(record, { scroll: false }));
-      els.messages.scrollTop = els.messages.scrollHeight;
     }
 
     async function setupPresence() {
@@ -856,10 +845,10 @@
         };
         els.currentUsername.textContent = state.currentUser.username;
 
-        await loadHistory();
+        initializeRealtimeOnlyFeed();
         await setupMessagesRealtime();
         await setupPresence();
-        showToast('已进入公共聊天室', 'success');
+        showToast('已进入无历史聊天室', 'success');
       } catch (error) {
         console.error(error);
         setConnectionState('disconnected', '初始化失败，请检查 messages 表和 Realtime 配置');
