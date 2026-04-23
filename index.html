@@ -376,35 +376,29 @@
     }
 
     function buildMessageBubble(record) {
-      const isSelf = record.user_id === state.currentUser?.id;
       const messageKind = inferMessageKind(record);
       const wrapper = document.createElement('article');
-      wrapper.className = `flex ${isSelf ? 'justify-end' : 'justify-start'}`;
+      wrapper.className = 'flex justify-start';
 
       const bubble = document.createElement('div');
-      bubble.className = [
-        'max-w-[86%] rounded-[24px] border px-4 py-3 shadow-lg md:max-w-[72%]',
-        isSelf
-          ? 'border-accent/30 bg-accent/12 text-white'
-          : 'border-white/10 bg-white/5 text-white',
-      ].join(' ');
+      bubble.className = 'max-w-[92%] rounded-[24px] border border-white/10 bg-white/5 px-4 py-3 text-white shadow-lg md:max-w-[76%]';
 
-      const meta = document.createElement('div');
-      meta.className = `mb-2 flex items-center gap-2 text-[11px] ${isSelf ? 'justify-end text-white/45' : 'justify-start text-white/45'}`;
-      const name = document.createElement('span');
-      name.className = 'font-semibold text-white/70';
-      name.textContent = isSelf ? `${record.username} · 我` : record.username || '匿名用户';
-      const time = document.createElement('span');
-      time.className = 'font-mono';
-      time.textContent = formatTimestamp(record.created_at);
-      meta.append(name, time);
-      bubble.appendChild(meta);
+      const tools = document.createElement('div');
+      tools.className = 'mb-2 flex justify-end';
+
+      const copyButton = document.createElement('button');
+      copyButton.type = 'button';
+      copyButton.className = 'rounded-full border border-white/15 px-3 py-1 text-xs font-medium text-white/70 transition hover:border-white/35 hover:text-white';
+      copyButton.textContent = '复制';
+      tools.appendChild(copyButton);
+      bubble.appendChild(tools);
 
       if (messageKind === 'text') {
         const content = document.createElement('p');
         content.className = 'whitespace-pre-wrap break-words text-sm leading-6';
         content.textContent = record.content || '';
         bubble.appendChild(content);
+        copyButton.dataset.copyText = record.content || '';
       }
 
       if (messageKind === 'image') {
@@ -437,6 +431,7 @@
         }
 
         bubble.appendChild(captionWrap);
+        copyButton.dataset.copyText = record.file_url || '';
       }
 
       if (messageKind === 'file') {
@@ -474,6 +469,11 @@
           caption.textContent = record.content;
           bubble.appendChild(caption);
         }
+        copyButton.dataset.copyText = record.file_url || '';
+      }
+
+      if (!copyButton.dataset.copyText) {
+        copyButton.dataset.copyText = record.content || '';
       }
 
       wrapper.appendChild(bubble);
@@ -727,6 +727,22 @@
       }
     }
 
+    async function copyMessageText(text) {
+      const value = (text || '').trim();
+      if (!value) {
+        showToast('这条消息没有可复制内容', 'error');
+        return;
+      }
+
+      try {
+        await navigator.clipboard.writeText(value);
+        showToast('已复制');
+      } catch (error) {
+        console.error(error);
+        showToast('复制失败，请检查浏览器权限', 'error');
+      }
+    }
+
     function openImageModal(url) {
       if (!url) return;
       els.imageModalSrc.src = url;
@@ -750,6 +766,12 @@
         if (event.target === els.imageModal) closeImageModal();
       });
       els.messages.addEventListener('click', (event) => {
+        const copyTarget = event.target.closest('[data-copy-text]');
+        if (copyTarget) {
+          copyMessageText(copyTarget.dataset.copyText || '');
+          return;
+        }
+
         const target = event.target.closest('[data-image-url]');
         if (target) openImageModal(target.dataset.imageUrl);
       });
