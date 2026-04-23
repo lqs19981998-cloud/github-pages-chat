@@ -37,6 +37,22 @@
   - 删除 10 分钟前的消息
   - 删除 10 分钟前的上传文件
 
+## 自动保活
+
+- 已配置 GitHub Actions：
+  - `.github/workflows/supabase-keepalive.yml`
+- 触发方式：
+  - 每天自动执行一次
+  - 或在 GitHub Actions 页面手动 `Run workflow`
+- 作用：
+  - 请求一次 Supabase Data API，保持项目有活动
+  - 请求失败时工作流会标红，便于排查
+
+## 保活提醒
+
+- GitHub 的定时工作流使用 UTC 时间
+- 如果仓库 60 天没有活动，GitHub 可能会自动停用定时工作流，需要手动重新启用
+
 ## 注意
 
 - 如果之后要换 Supabase 项目，直接改 `index.html` 里的：
