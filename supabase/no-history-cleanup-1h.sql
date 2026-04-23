@@ -1,4 +1,4 @@
--- Pulse Relay: 无历史模式 + 1 小时自动清理
+-- Pulse Relay: 无历史模式 + 10 分钟自动清理
 -- 用法：
 -- 1. 在 Supabase Dashboard -> SQL Editor 里执行整段 SQL
 -- 2. 如果提示 pg_cron 未开启，先在 Database -> Extensions 启用 pg_cron
@@ -14,10 +14,10 @@ as $$
 begin
   delete from storage.objects
   where bucket_id = 'chat-files'
-    and created_at < now() - interval '1 hour';
+    and created_at < now() - interval '10 minutes';
 
   delete from public.messages
-  where created_at < now() - interval '1 hour';
+  where created_at < now() - interval '10 minutes';
 end;
 $$;
 
