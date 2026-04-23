@@ -113,7 +113,7 @@
         </div>
       </header>
 
-      <main class="mt-4 grid flex-1 gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
+      <main class="mt-4 grid min-h-0 flex-1 gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
         <aside class="order-2 flex min-h-[260px] flex-col rounded-[28px] border border-white/10 bg-white/5 shadow-frame backdrop-blur lg:order-1">
           <div class="border-b border-white/10 px-5 py-4">
             <p class="font-mono text-[11px] uppercase tracking-[0.28em] text-white/40">Presence</p>
@@ -127,7 +127,7 @@
           </div>
         </aside>
 
-        <section class="order-1 flex min-h-[70vh] flex-col rounded-[30px] border border-white/10 bg-panel/80 shadow-frame lg:order-2">
+        <section class="order-1 flex min-h-0 h-[72vh] max-h-[82vh] flex-col rounded-[30px] border border-white/10 bg-panel/80 shadow-frame lg:order-2">
           <div class="border-b border-white/10 px-5 py-4">
             <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -138,7 +138,7 @@
             </div>
           </div>
 
-          <div id="messages" class="scrollbar-thin flex-1 space-y-4 overflow-y-auto px-4 py-5 md:px-5">
+          <div id="messages" class="scrollbar-thin min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5 md:px-5">
             <div class="rounded-2xl border border-dashed border-white/10 px-4 py-6 text-center text-sm text-white/40">
               连接成功后会自动加载最近消息
             </div>
