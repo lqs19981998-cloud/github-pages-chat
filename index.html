@@ -187,6 +187,7 @@
     const SUPABASE_URL = 'https://lljblinqccydassokspa.supabase.co';
     const SUPABASE_KEY = 'sb_publishable_yanZsKJCotPg7Bp4kdPJXQ_Qqe91gSw';
     const LIVE_MESSAGE_LIMIT = 50;
+    const HISTORY_WINDOW_MINUTES = 5;
     const MAX_FILE_SIZE = 10 * 1024 * 1024;
     const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif']);
 
@@ -369,10 +370,32 @@
       els.messages.appendChild(card);
     }
 
-    function initializeRealtimeOnlyFeed() {
+    async function loadRecentWindowMessages() {
       state.messageIds.clear();
+
+      const since = new Date(Date.now() - HISTORY_WINDOW_MINUTES * 60 * 1000).toISOString();
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .gte('created_at', since)
+        .order('created_at', { ascending: true })
+        .limit(LIVE_MESSAGE_LIMIT);
+
+      if (error) {
+        throw error;
+      }
+
+      els.messages.innerHTML = '';
       state.historyLoaded = true;
-      renderEmptyMessagesPlaceholder('无历史模式已开启，页面只显示你进入之后的新消息。');
+
+      const rows = data || [];
+      if (!rows.length) {
+        renderEmptyMessagesPlaceholder(`仅加载最近 ${HISTORY_WINDOW_MINUTES} 分钟消息，当前暂无可显示内容。`);
+        return;
+      }
+
+      rows.forEach((record) => appendMessage(record, { scroll: false }));
+      els.messages.scrollTop = els.messages.scrollHeight;
     }
 
     function buildMessageBubble(record) {
@@ -867,10 +890,10 @@
         };
         els.currentUsername.textContent = state.currentUser.username;
 
-        initializeRealtimeOnlyFeed();
+        await loadRecentWindowMessages();
         await setupMessagesRealtime();
         await setupPresence();
-        showToast('已进入无历史聊天室', 'success');
+        showToast(`已进入聊天室（仅加载最近 ${HISTORY_WINDOW_MINUTES} 分钟）`, 'success');
       } catch (error) {
         console.error(error);
         setConnectionState('disconnected', '初始化失败，请检查 messages 表和 Realtime 配置');
